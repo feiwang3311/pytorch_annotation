@@ -2,6 +2,66 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
+class DeliminatorFunction(torch.autograd.Function):
+    """
+    A custom autograd function for the deliminator operation.
+    This function acts as an identity operation during forward/backward pass,
+    but will be exported as a custom ONNX op during ONNX export.
+    """
+    
+    @staticmethod
+    def forward(ctx, input):
+        """
+        Forward pass of the deliminator function.
+        This is just an identity operation.
+        """
+        return input
+    
+    @staticmethod
+    def backward(ctx, grad_output):
+        """
+        Backward pass of the deliminator function.
+        This is just an identity operation.
+        """
+        return grad_output
+    
+    @staticmethod
+    def symbolic(g, input):
+        """
+        Symbolic function for exporting deliminator to ONNX.
+        This will create a custom ONNX op called 'Deliminator'.
+        """
+        return g.op("pytorch_annotation::Deliminator", input)
+
+
+def deliminator(input):
+    """
+    Apply the deliminator operation to the input tensor.
+    This function acts as an identity operation during PyTorch execution,
+    but will be exported as a custom ONNX op during ONNX export.
+    
+    Args:
+        input (torch.Tensor): Input tensor
+        
+    Returns:
+        torch.Tensor: Output tensor (same as input)
+    """
+    return DeliminatorFunction.apply(input)
+
+
+
+
+
+
+
+
+
+
+
+# Register the symbolic function with PyTorch
+# torch.onnx.register_custom_op_symbolic('pytorch_annotation::deliminator', _deliminator_symbolic, 11)
+
 class SimpleNN(nn.Module):
     """
     A simple neural network with linear and ReLU layers for image classification.
@@ -32,6 +92,9 @@ class SimpleNN(nn.Module):
         """
         # Flatten the input tensor
         x = x.view(x.size(0), -1)
+        
+        # Apply deliminator operation
+        x = deliminator(x)
         
         # Apply linear and ReLU layers
         x = F.relu(self.fc1(x))

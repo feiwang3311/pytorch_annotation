@@ -17,12 +17,9 @@ def trace_model_to_onnx(model, input_tensor, onnx_path):
     # Set the model to evaluation mode
     model.eval()
     
-    # Trace the model
-    traced_model = torch.jit.trace(model, input_tensor)
-    
-    # Export the traced model to ONNX
+    # Export the model to ONNX directly (without tracing first)
     torch.onnx.export(
-        traced_model,
+        model,
         input_tensor,
         onnx_path,
         export_params=True,
@@ -33,7 +30,8 @@ def trace_model_to_onnx(model, input_tensor, onnx_path):
         dynamic_axes={
             'input': {0: 'batch_size'},
             'output': {0: 'batch_size'}
-        }
+        },
+        # dynamo=True
     )
     
     print(f"Model traced and exported to {onnx_path}")
@@ -123,6 +121,7 @@ def load_and_test_onnx_model(onnx_path, input_tensor):
         input_tensor (torch.Tensor): Input tensor for testing
     """
     # Create ONNX Runtime session
+    # This line of code errors out because the onnx runtime doesn't know about Deliminator node.
     ort_session = ort.InferenceSession(onnx_path)
     
     # Convert PyTorch tensor to numpy
