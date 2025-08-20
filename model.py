@@ -80,7 +80,7 @@ class SimpleNN(nn.Module):
         self.fc2 = nn.Linear(hidden_size, hidden_size)
         self.fc3 = nn.Linear(hidden_size, num_classes)
         
-    def forward(self, x):
+    def step(self, x):
         """
         Forward pass of the neural network.
         
@@ -90,16 +90,32 @@ class SimpleNN(nn.Module):
         Returns:
             torch.Tensor: Output tensor
         """
+        x = deliminator(x)
         # Flatten the input tensor
         x = x.view(x.size(0), -1)
         
-        # Apply deliminator operation
-        x = deliminator(x)
+        # If input size is not 784, we need to handle it differently
+        if x.size(1) != 784:
+            # For subsequent steps, we need to adjust the input to match fc1
+            # We can either pad or truncate the input, or use a different approach
+            # For simplicity, let's just use the first 784 elements or pad with zeros
+            if x.size(1) < 784:
+                # Pad with zeros
+                padding = torch.zeros(x.size(0), 784 - x.size(1))
+                x = torch.cat([x, padding], dim=1)
+            else:
+                # Truncate to 784 elements
+                x = x[:, :784]
         
         # Apply linear and ReLU layers
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
+        return deliminator(x)
+
+    def forward(self, x):
+        for _ in range(3):
+            x = self.step(x)
         return x
 
 def create_model(input_size=784, hidden_size=128, num_classes=10):
