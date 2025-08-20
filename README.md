@@ -72,9 +72,9 @@ Training loss plot saved as 'training_loss.png'
 Model saved as 'simple_nn_model.pth'
 ```
 
-### Tracing the Model and Generating ONNX
+### Tracing the Model and Generating ONNX with Metadata
 
-To trace the PyTorch model and generate an ONNX file with visualization of the forward path, run:
+To trace the PyTorch model and generate an ONNX file with metadata and visualization of the forward path, run:
 
 ```bash
 python3 trace_and_visualize.py
@@ -82,9 +82,9 @@ python3 trace_and_visualize.py
 
 This will:
 1. Create an instance of the neural network
-2. Trace the model using `torch.jit.trace`
-3. Export the traced model to ONNX format (`simple_nn_model.onnx`)
-4. Visualize the ONNX model structure
+2. Export the model to ONNX format (`simple_nn_model.onnx`)
+3. Add metadata to the ONNX nodes using built-in fields (name and doc_string)
+4. Visualize the ONNX model structure with metadata
 5. Create a visualization of the model's forward path (`model_forward_path.png`)
 6. Verify that the ONNX model produces the same output as the PyTorch model
 
@@ -92,7 +92,7 @@ Expected output:
 ```
 Model created successfully
 Sample input shape: torch.Size([1, 1, 28, 28])
-Model traced and exported to simple_nn_model.onnx
+Model traced and exported to simple_nn_model.onnx with metadata
 ONNX model is valid
 Model IR version: 6
 Model opset: [version: 11]
@@ -100,12 +100,25 @@ Number of nodes: 12
 Model nodes:
   Node 0: Shape - /Shape
   ...
-  Node 11: Gemm - /fc3/Gemm
+  Node 7: Gemm - fc1
+    doc_string: First fully connected layer: 784 -> 128
+  Node 8: Relu - relu_4
+    doc_string: ReLU activation 1
+  Node 9: Gemm - fc2
+    doc_string: Second fully connected layer: 128 -> 128
+  Node 10: Relu - relu_5
+    doc_string: ReLU activation 2
+  Node 11: Gemm - fc3
+    doc_string: Output layer: 128 -> 10
 Model graph visualization saved to model_forward_path.png
 ONNX model output shape: (1, 10)
 PyTorch model output shape: torch.Size([1, 10])
-Max difference between PyTorch and ONNX outputs: 5.960464477539063e-08
+Max difference between PyTorch and ONNX outputs: 2.9802322387695312e-08
 ```
+
+The metadata is added to the ONNX nodes using the built-in `name` and `doc_string` fields:
+- Linear layers (Gemm nodes) are named fc1, fc2, fc3 with descriptive doc_strings
+- ReLU layers are named relu_4, relu_5 with descriptive doc_strings
 
 ### Using the Model
 

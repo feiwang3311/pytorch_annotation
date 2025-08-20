@@ -3,11 +3,11 @@ import onnx
 import onnxruntime as ort
 import matplotlib.pyplot as plt
 import numpy as np
-from model import create_model
+from model import create_model, add_metadata_to_onnx
 
 def trace_model_to_onnx(model, input_tensor, onnx_path):
     """
-    Trace the PyTorch model and export it to ONNX format.
+    Trace the PyTorch model and export it to ONNX format with metadata.
     
     Args:
         model (nn.Module): The PyTorch model to trace
@@ -17,12 +17,9 @@ def trace_model_to_onnx(model, input_tensor, onnx_path):
     # Set the model to evaluation mode
     model.eval()
     
-    # Trace the model
-    traced_model = torch.jit.trace(model, input_tensor)
-    
-    # Export the traced model to ONNX
+    # Export the model to ONNX
     torch.onnx.export(
-        traced_model,
+        model,
         input_tensor,
         onnx_path,
         export_params=True,
@@ -36,7 +33,14 @@ def trace_model_to_onnx(model, input_tensor, onnx_path):
         }
     )
     
-    print(f"Model traced and exported to {onnx_path}")
+    # Load the ONNX model and add metadata
+    onnx_model = onnx.load(onnx_path)
+    onnx_model = add_metadata_to_onnx(onnx_model)
+    
+    # Save the updated ONNX model
+    onnx.save(onnx_model, onnx_path)
+    
+    print(f"Model traced and exported to {onnx_path} with metadata")
 
 def visualize_onnx_model(onnx_path):
     """
@@ -63,6 +67,16 @@ def visualize_onnx_model(onnx_path):
         print(f"  Node {i}: {node.op_type} - {node.name}")
         print(f"    Inputs: {node.input}")
         print(f"    Outputs: {node.output}")
+        # Print attributes if any
+        if node.attribute:
+            print(f"    Attributes:")
+            for attr in node.attribute:
+                if attr.type == onnx.AttributeProto.STRING:
+                    print(f"      {attr.name}: {attr.s.decode('utf-8')}")
+                elif attr.type == onnx.AttributeProto.INT:
+                    print(f"      {attr.name}: {attr.i}")
+                elif attr.type == onnx.AttributeProto.FLOAT:
+                    print(f"      {attr.name}: {attr.f}")
     
     return onnx_model
 
@@ -106,7 +120,7 @@ def visualize_model_graph(onnx_model, output_path="model_graph.png"):
     ax.set_ylim(-0.5, 0.5)
     ax.set_aspect('equal')
     ax.axis('off')
-    plt.title('SimpleNN Model Forward Path', fontsize=16, pad=20)
+    plt.title('SimpleNN Model Forward Path with Metadata', fontsize=16, pad=20)
     plt.tight_layout()
     
     # Save the plot

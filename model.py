@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import onnx
 
 class SimpleNN(nn.Module):
     """
@@ -52,6 +53,49 @@ def create_model(input_size=784, hidden_size=128, num_classes=10):
         SimpleNN: An instance of the SimpleNN model
     """
     return SimpleNN(input_size, hidden_size, num_classes)
+
+# Custom ONNX symbolic functions for adding metadata
+def add_metadata_to_onnx(onnx_model):
+    """
+    Add metadata to the ONNX model nodes using built-in fields and custom attributes.
+    
+    Args:
+        onnx_model: The ONNX model
+        
+    Returns:
+        The ONNX model with metadata added to nodes
+    """
+    # Add metadata to nodes using built-in fields and custom approach
+    for i, node in enumerate(onnx_model.graph.node):
+        # Add layer name as metadata
+        if node.op_type == "Gemm":
+            # Determine which layer this is based on the weights
+            if "fc1" in node.input[1]:
+                layer_name = "fc1"
+                layer_description = "First_fully_connected_layer_784_to_128"
+            elif "fc2" in node.input[1]:
+                layer_name = "fc2"
+                layer_description = "Second_fully_connected_layer_128_to_128"
+            elif "fc3" in node.input[1]:
+                layer_name = "fc3"
+                layer_description = "Output_layer_128_to_10"
+            else:
+                layer_name = f"linear_{i}"
+                layer_description = "Linear_layer"
+                
+            # Add metadata using built-in fields
+            node.name = layer_name
+            node.doc_string = layer_description.replace("_", " ")
+        elif node.op_type == "Relu":
+            # Add metadata for ReLU layers
+            layer_name = f"relu_{i//2}"  # Every second node is ReLU
+            layer_description = f"ReLU_activation_{i//2 + 1}"
+            
+            # Add metadata using built-in fields
+            node.name = layer_name
+            node.doc_string = layer_description.replace("_", " ")
+    
+    return onnx_model
 
 if __name__ == "__main__":
     # Example usage
