@@ -9,7 +9,7 @@ class DeliminatorFunction(torch.autograd.Function):
     This function acts as an identity operation during forward/backward pass,
     but will be exported as a custom ONNX op during ONNX export.
     """
-    
+
     @staticmethod
     def forward(ctx, input):
         """
@@ -17,7 +17,7 @@ class DeliminatorFunction(torch.autograd.Function):
         This is just an identity operation.
         """
         return input
-    
+
     @staticmethod
     def backward(ctx, grad_output):
         """
@@ -25,14 +25,80 @@ class DeliminatorFunction(torch.autograd.Function):
         This is just an identity operation.
         """
         return grad_output
-    
+
     @staticmethod
     def symbolic(g, input):
         """
         Symbolic function for exporting deliminator to ONNX.
         This will create a custom ONNX op called 'Deliminator'.
+
+        Args:
+            g: ONNX graph context
+            input: Input tensor
         """
         return g.op("pytorch_annotation::Deliminator", input)
+
+
+class SpaceSliceFunction(torch.autograd.Function):
+   """
+   A custom autograd function for the SpaceSlice operation.
+   This function acts as an identity operation during forward/backward pass,
+   but will be exported as a custom ONNX op during ONNX export.
+   """
+
+   @staticmethod
+   def forward(ctx, input, dim=1, size=4):
+       """
+       Forward pass of the SpaceSlice function.
+       This is just an identity operation.
+
+       Args:
+           input (torch.Tensor): Input tensor
+           dim (int): Dimension attribute (default: 1)
+           size (int): Size attribute (default: 4)
+       """
+       return input
+
+   @staticmethod
+   def backward(ctx, grad_output):
+       """
+       Backward pass of the SpaceSlice function.
+       This is just an identity operation.
+       """
+       return grad_output
+
+   @staticmethod
+   def symbolic(g, input, dim=1, size=4):
+       """
+       Symbolic function for exporting SpaceSlice to ONNX.
+       This will create a custom ONNX op called 'SpaceSlice' with attributes.
+
+       Args:
+           g: ONNX graph context
+           input: Input tensor
+           dim (int): Dimension attribute (default: 1)
+           size (int): Size attribute (default: 4)
+       """
+       return g.op("pytorch_annotation::SpaceSlice", input, dim_i=dim, size_i=size)
+
+
+def space_slice(input, dim=1, size=4):
+   """
+   Apply the SpaceSlice operation to the input tensor.
+   This function acts as an identity operation during PyTorch execution,
+   but will be exported as a custom ONNX op during ONNX export.
+
+   Args:
+       input (torch.Tensor): Input tensor
+       dim (int): Dimension attribute (default: 1)
+       size (int): Size attribute (default: 4)
+
+   Returns:
+       torch.Tensor: Output tensor (same as input)
+   """
+   # For PyTorch execution, we just return the input directly
+   # For ONNX export, the symbolic function will handle the attributes
+   return SpaceSliceFunction.apply(input, dim, size)
 
 
 def deliminator(input):
@@ -40,13 +106,15 @@ def deliminator(input):
     Apply the deliminator operation to the input tensor.
     This function acts as an identity operation during PyTorch execution,
     but will be exported as a custom ONNX op during ONNX export.
-    
+
     Args:
         input (torch.Tensor): Input tensor
-        
+
     Returns:
         torch.Tensor: Output tensor (same as input)
     """
+    # For PyTorch execution, we just return the input directly
+    # For ONNX export, the symbolic function will handle the attributes
     return DeliminatorFunction.apply(input)
 
 
@@ -69,7 +137,7 @@ class SimpleNN(nn.Module):
     def __init__(self, input_size=784, hidden_size=128, num_classes=10):
         """
         Initialize the neural network.
-        
+
         Args:
             input_size (int): Size of the input features (default: 784 for 28x28 images)
             hidden_size (int): Number of neurons in the hidden layer (default: 128)
@@ -79,21 +147,23 @@ class SimpleNN(nn.Module):
         self.fc1 = nn.Linear(input_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
         self.fc3 = nn.Linear(hidden_size, num_classes)
-        
+
     def step(self, x):
         """
         Forward pass of the neural network.
-        
+
         Args:
             x (torch.Tensor): Input tensor
-            
+
         Returns:
             torch.Tensor: Output tensor
         """
-        x = deliminator(x)
+        # Add Space Slice Attribute
+        x = space_slice(x, dim=2, size=5)
+
         # Flatten the input tensor
         x = x.view(x.size(0), -1)
-        
+
         # If input size is not 784, we need to handle it differently
         if x.size(1) != 784:
             # For subsequent steps, we need to adjust the input to match fc1
@@ -106,27 +176,28 @@ class SimpleNN(nn.Module):
             else:
                 # Truncate to 784 elements
                 x = x[:, :784]
-        
+
         # Apply linear and ReLU layers
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return deliminator(x)
+        return self.fc3(x)
 
     def forward(self, x):
         for _ in range(3):
+            x = deliminator(x)
             x = self.step(x)
+            x = deliminator(x)
         return x
 
 def create_model(input_size=784, hidden_size=128, num_classes=10):
     """
     Create an instance of the SimpleNN model.
-    
+
     Args:
         input_size (int): Size of the input features
         hidden_size (int): Number of neurons in the hidden layer
         num_classes (int): Number of output classes
-        
+
     Returns:
         SimpleNN: An instance of the SimpleNN model
     """
@@ -136,10 +207,10 @@ if __name__ == "__main__":
     # Example usage
     model = create_model()
     print(model)
-    
+
     # Create a sample input tensor (batch_size=1, channels=1, height=28, width=28)
     sample_input = torch.randn(1, 1, 28, 28)
-    
+
     # Forward pass
     output = model(sample_input)
     print(f"Input shape: {sample_input.shape}")
