@@ -118,6 +118,103 @@ def deliminator(input):
     return DeliminatorFunction.apply(input)
 
 
+class PartitionBeginFunction(torch.autograd.Function):
+    """
+    Marks the beginning of a partition in the ONNX graph.
+    """
+
+    @staticmethod
+    def forward(ctx, input, partition_name):
+        ctx.partition_name = partition_name
+        return input
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output, None
+
+    @staticmethod
+    def symbolic(g, input, partition_name):
+        return g.op("pytorch_annotation::PartitionBegin", input, partition_s=partition_name)
+
+
+class PartitionEndFunction(torch.autograd.Function):
+    """
+    Marks the end of a partition in the ONNX graph.
+    """
+
+    @staticmethod
+    def forward(ctx, input, partition_name):
+        ctx.partition_name = partition_name
+        return input
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output, None
+
+    @staticmethod
+    def symbolic(g, input, partition_name):
+        return g.op("pytorch_annotation::PartitionEnd", input, partition_s=partition_name)
+
+
+def partition(name):
+    """
+    A decorator that automatically inserts deliminator ops at function boundaries.
+
+    Usage:
+        @partition("step_partition")
+        def step(self, x):
+            # ... operations ...
+            return x
+
+        def forward(self, x):
+            for i in range(3):
+                x = self.step(x)
+            return x
+
+    Each call to step() will automatically have deliminator() applied to
+    the input tensor(s) and output tensor(s).
+
+    Args:
+        name (str): Name for the partition (currently unused, but available
+                    for future use in PartitionBegin/End ops if needed)
+    """
+    import functools
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            # Apply deliminator to tensor arguments
+            new_args = []
+            for arg in args:
+                if isinstance(arg, torch.Tensor):
+                    new_args.append(deliminator(arg))
+                else:
+                    new_args.append(arg)
+
+            # Apply deliminator to tensor keyword arguments
+            new_kwargs = {}
+            for key, val in kwargs.items():
+                if isinstance(val, torch.Tensor):
+                    new_kwargs[key] = deliminator(val)
+                else:
+                    new_kwargs[key] = val
+
+            # Call the original function
+            result = func(*new_args, **new_kwargs)
+
+            # Apply deliminator to output
+            if isinstance(result, torch.Tensor):
+                return deliminator(result)
+            elif isinstance(result, tuple):
+                return tuple(
+                    deliminator(r) if isinstance(r, torch.Tensor) else r
+                    for r in result
+                )
+            return result
+
+        return wrapper
+
+    return decorator
 
 
 
@@ -148,6 +245,7 @@ class SimpleNN(nn.Module):
         self.fc2 = nn.Linear(hidden_size, hidden_size)
         self.fc3 = nn.Linear(hidden_size, num_classes)
 
+    @partition("step")
     def step(self, x):
         """
         Forward pass of the neural network.
@@ -183,10 +281,8 @@ class SimpleNN(nn.Module):
         return self.fc3(x)
 
     def forward(self, x):
-        for _ in range(3):
-            x = deliminator(x)
+        for i in range(3):
             x = self.step(x)
-            x = deliminator(x)
         return x
 
 def create_model(input_size=784, hidden_size=128, num_classes=10):
