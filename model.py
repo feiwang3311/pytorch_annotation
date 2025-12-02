@@ -11,10 +11,14 @@ class DeliminatorFunction(torch.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx, input):
+    def forward(ctx, input, is_begin):
         """
         Forward pass of the deliminator function.
         This is just an identity operation.
+
+        Args:
+            input: Input tensor
+            is_begin: Boolean flag - True for partition begin, False for partition end
         """
         return input
 
@@ -24,19 +28,20 @@ class DeliminatorFunction(torch.autograd.Function):
         Backward pass of the deliminator function.
         This is just an identity operation.
         """
-        return grad_output
+        return grad_output, None
 
     @staticmethod
-    def symbolic(g, input):
+    def symbolic(g, input, is_begin):
         """
         Symbolic function for exporting deliminator to ONNX.
-        This will create a custom ONNX op called 'Deliminator'.
+        This will create a custom ONNX op called 'Deliminator' with is_begin attribute.
 
         Args:
             g: ONNX graph context
             input: Input tensor
+            is_begin: Boolean flag - True for partition begin, False for partition end
         """
-        return g.op("pytorch_annotation::Deliminator", input)
+        return g.op("pytorch_annotation::Deliminator", input, is_begin_i=1 if is_begin else 0)
 
 
 class SpaceSliceFunction(torch.autograd.Function):
@@ -101,7 +106,7 @@ def space_slice(input, dim=1, size=4):
    return SpaceSliceFunction.apply(input, dim, size)
 
 
-def deliminator(input):
+def deliminator(input, is_begin=True):
     """
     Apply the deliminator operation to the input tensor.
     This function acts as an identity operation during PyTorch execution,
@@ -109,13 +114,14 @@ def deliminator(input):
 
     Args:
         input (torch.Tensor): Input tensor
+        is_begin (bool): True for partition begin, False for partition end
 
     Returns:
         torch.Tensor: Output tensor (same as input)
     """
     # For PyTorch execution, we just return the input directly
     # For ONNX export, the symbolic function will handle the attributes
-    return DeliminatorFunction.apply(input)
+    return DeliminatorFunction.apply(input, is_begin)
 
 
 class PartitionBeginFunction(torch.autograd.Function):
@@ -172,7 +178,7 @@ def partition(name):
             return x
 
     Each call to step() will automatically have deliminator() applied to
-    the input tensor(s) and output tensor(s).
+    the input tensor(s) (with is_begin=True) and output tensor(s) (with is_begin=False).
 
     Args:
         name (str): Name for the partition (currently unused, but available
@@ -183,31 +189,31 @@ def partition(name):
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            # Apply deliminator to tensor arguments
+            # Apply deliminator to tensor arguments (is_begin=True for inputs)
             new_args = []
             for arg in args:
                 if isinstance(arg, torch.Tensor):
-                    new_args.append(deliminator(arg))
+                    new_args.append(deliminator(arg, is_begin=True))
                 else:
                     new_args.append(arg)
 
-            # Apply deliminator to tensor keyword arguments
+            # Apply deliminator to tensor keyword arguments (is_begin=True for inputs)
             new_kwargs = {}
             for key, val in kwargs.items():
                 if isinstance(val, torch.Tensor):
-                    new_kwargs[key] = deliminator(val)
+                    new_kwargs[key] = deliminator(val, is_begin=True)
                 else:
                     new_kwargs[key] = val
 
             # Call the original function
             result = func(*new_args, **new_kwargs)
 
-            # Apply deliminator to output
+            # Apply deliminator to output (is_begin=False for outputs)
             if isinstance(result, torch.Tensor):
-                return deliminator(result)
+                return deliminator(result, is_begin=False)
             elif isinstance(result, tuple):
                 return tuple(
-                    deliminator(r) if isinstance(r, torch.Tensor) else r
+                    deliminator(r, is_begin=False) if isinstance(r, torch.Tensor) else r
                     for r in result
                 )
             return result
