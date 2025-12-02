@@ -11,7 +11,7 @@ class DeliminatorFunction(torch.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx, input, is_begin):
+    def forward(ctx, input, is_begin, partition_name, scheduling_config):
         """
         Forward pass of the deliminator function.
         This is just an identity operation.
@@ -19,6 +19,8 @@ class DeliminatorFunction(torch.autograd.Function):
         Args:
             input: Input tensor
             is_begin: Boolean flag - True for partition begin, False for partition end
+            partition_name: Name of the partition
+            scheduling_config: Scheduling configuration string
         """
         return input
 
@@ -28,20 +30,25 @@ class DeliminatorFunction(torch.autograd.Function):
         Backward pass of the deliminator function.
         This is just an identity operation.
         """
-        return grad_output, None
+        return grad_output, None, None, None
 
     @staticmethod
-    def symbolic(g, input, is_begin):
+    def symbolic(g, input, is_begin, partition_name, scheduling_config):
         """
         Symbolic function for exporting deliminator to ONNX.
-        This will create a custom ONNX op called 'Deliminator' with is_begin attribute.
+        This will create a custom ONNX op called 'Deliminator' with attributes.
 
         Args:
             g: ONNX graph context
             input: Input tensor
             is_begin: Boolean flag - True for partition begin, False for partition end
+            partition_name: Name of the partition
+            scheduling_config: Scheduling configuration string
         """
-        return g.op("pytorch_annotation::Deliminator", input, is_begin_i=1 if is_begin else 0)
+        return g.op("pytorch_annotation::Deliminator", input,
+                    is_begin_i=1 if is_begin else 0,
+                    partition_name_s=partition_name,
+                    scheduling_config_s=scheduling_config)
 
 
 class SpaceSliceFunction(torch.autograd.Function):
@@ -106,7 +113,7 @@ def space_slice(input, dim=1, size=4):
    return SpaceSliceFunction.apply(input, dim, size)
 
 
-def deliminator(input, is_begin=True):
+def deliminator(input, is_begin=True, partition_name="", scheduling_config=""):
     """
     Apply the deliminator operation to the input tensor.
     This function acts as an identity operation during PyTorch execution,
@@ -115,13 +122,15 @@ def deliminator(input, is_begin=True):
     Args:
         input (torch.Tensor): Input tensor
         is_begin (bool): True for partition begin, False for partition end
+        partition_name (str): Name of the partition
+        scheduling_config (str): Scheduling configuration string
 
     Returns:
         torch.Tensor: Output tensor (same as input)
     """
     # For PyTorch execution, we just return the input directly
     # For ONNX export, the symbolic function will handle the attributes
-    return DeliminatorFunction.apply(input, is_begin)
+    return DeliminatorFunction.apply(input, is_begin, partition_name, scheduling_config)
 
 
 class PartitionBeginFunction(torch.autograd.Function):
@@ -162,12 +171,12 @@ class PartitionEndFunction(torch.autograd.Function):
         return g.op("pytorch_annotation::PartitionEnd", input, partition_s=partition_name)
 
 
-def partition(name):
+def partition(partition_name, scheduling_config=""):
     """
     A decorator that automatically inserts deliminator ops at function boundaries.
 
     Usage:
-        @partition("step_partition")
+        @partition("step_partition", "scheduling_config")
         def step(self, x):
             # ... operations ...
             return x
@@ -181,8 +190,8 @@ def partition(name):
     the input tensor(s) (with is_begin=True) and output tensor(s) (with is_begin=False).
 
     Args:
-        name (str): Name for the partition (currently unused, but available
-                    for future use in PartitionBegin/End ops if needed)
+        partition_name (str): Name for the partition
+        scheduling_config (str): Scheduling configuration string (default: "")
     """
     import functools
 
@@ -193,7 +202,9 @@ def partition(name):
             new_args = []
             for arg in args:
                 if isinstance(arg, torch.Tensor):
-                    new_args.append(deliminator(arg, is_begin=True))
+                    new_args.append(deliminator(arg, is_begin=True,
+                                                partition_name=partition_name,
+                                                scheduling_config=scheduling_config))
                 else:
                     new_args.append(arg)
 
@@ -201,7 +212,9 @@ def partition(name):
             new_kwargs = {}
             for key, val in kwargs.items():
                 if isinstance(val, torch.Tensor):
-                    new_kwargs[key] = deliminator(val, is_begin=True)
+                    new_kwargs[key] = deliminator(val, is_begin=True,
+                                                  partition_name=partition_name,
+                                                  scheduling_config=scheduling_config)
                 else:
                     new_kwargs[key] = val
 
@@ -210,10 +223,14 @@ def partition(name):
 
             # Apply deliminator to output (is_begin=False for outputs)
             if isinstance(result, torch.Tensor):
-                return deliminator(result, is_begin=False)
+                return deliminator(result, is_begin=False,
+                                   partition_name=partition_name,
+                                   scheduling_config=scheduling_config)
             elif isinstance(result, tuple):
                 return tuple(
-                    deliminator(r, is_begin=False) if isinstance(r, torch.Tensor) else r
+                    deliminator(r, is_begin=False,
+                                partition_name=partition_name,
+                                scheduling_config=scheduling_config) if isinstance(r, torch.Tensor) else r
                     for r in result
                 )
             return result

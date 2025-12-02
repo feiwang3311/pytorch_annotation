@@ -33,7 +33,7 @@ class SimpleNN_SimSim(nn.Module):
         # Pre-register fixed padding buffer (784 - 10 = 774 zeros)
         self.register_buffer('padding', torch.zeros(1, input_size - num_classes))
 
-    @partition("step")
+    @partition("partition_name", "scheduling_config")
     def step_first(self, x):
         """First step: input is [1, 1, 28, 28], flatten inside."""
         # Reshape inside the partition so Deliminator comes first
@@ -43,7 +43,7 @@ class SimpleNN_SimSim(nn.Module):
         x = self.fc3(x)
         return x
 
-    @partition("step")
+    @partition("step", "scheduling_config")
     def step_rest(self, x):
         """Subsequent steps: input is [1, 10], needs padding to [1, 784]."""
         # Reshape to [1, 10] to match original structure
