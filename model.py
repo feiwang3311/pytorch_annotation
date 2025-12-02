@@ -171,12 +171,22 @@ class PartitionEndFunction(torch.autograd.Function):
         return g.op("pytorch_annotation::PartitionEnd", input, partition_s=partition_name)
 
 
+# Global counter to track partition invocations
+_partition_counters = {}
+
+
+def reset_partition_counters():
+    """Reset all partition invocation counters. Call this before each forward pass if needed."""
+    global _partition_counters
+    _partition_counters = {}
+
+
 def partition(partition_name, scheduling_config=""):
     """
     A decorator that automatically inserts deliminator ops at function boundaries.
 
     Usage:
-        @partition("step_partition", "scheduling_config")
+        @partition("step", "scheduling_config")
         def step(self, x):
             # ... operations ...
             return x
@@ -189,8 +199,10 @@ def partition(partition_name, scheduling_config=""):
     Each call to step() will automatically have deliminator() applied to
     the input tensor(s) (with is_begin=True) and output tensor(s) (with is_begin=False).
 
+    The partition_name will have a counter appended: "step_0", "step_1", etc.
+
     Args:
-        partition_name (str): Name for the partition
+        partition_name (str): Base name for the partition
         scheduling_config (str): Scheduling configuration string (default: "")
     """
     import functools
@@ -198,12 +210,23 @@ def partition(partition_name, scheduling_config=""):
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
+            global _partition_counters
+
+            # Get current counter for this partition name and increment
+            if partition_name not in _partition_counters:
+                _partition_counters[partition_name] = 0
+            counter = _partition_counters[partition_name]
+            _partition_counters[partition_name] += 1
+
+            # Create the full partition name with counter
+            full_partition_name = f"{partition_name}_{counter}"
+
             # Apply deliminator to tensor arguments (is_begin=True for inputs)
             new_args = []
             for arg in args:
                 if isinstance(arg, torch.Tensor):
                     new_args.append(deliminator(arg, is_begin=True,
-                                                partition_name=partition_name,
+                                                partition_name=full_partition_name,
                                                 scheduling_config=scheduling_config))
                 else:
                     new_args.append(arg)
@@ -213,7 +236,7 @@ def partition(partition_name, scheduling_config=""):
             for key, val in kwargs.items():
                 if isinstance(val, torch.Tensor):
                     new_kwargs[key] = deliminator(val, is_begin=True,
-                                                  partition_name=partition_name,
+                                                  partition_name=full_partition_name,
                                                   scheduling_config=scheduling_config)
                 else:
                     new_kwargs[key] = val
@@ -224,12 +247,12 @@ def partition(partition_name, scheduling_config=""):
             # Apply deliminator to output (is_begin=False for outputs)
             if isinstance(result, torch.Tensor):
                 return deliminator(result, is_begin=False,
-                                   partition_name=partition_name,
+                                   partition_name=full_partition_name,
                                    scheduling_config=scheduling_config)
             elif isinstance(result, tuple):
                 return tuple(
                     deliminator(r, is_begin=False,
-                                partition_name=partition_name,
+                                partition_name=full_partition_name,
                                 scheduling_config=scheduling_config) if isinstance(r, torch.Tensor) else r
                     for r in result
                 )

@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from model import partition, deliminator
+from model import partition, deliminator, reset_partition_counters
 
 
 class SimpleNN_SimSim(nn.Module):
@@ -124,6 +124,8 @@ if __name__ == "__main__":
 
     # Export to ONNX
     print("\n=== Exporting to ONNX ===")
+    # Reset partition counters before export so names start from 0
+    reset_partition_counters()
     torch.onnx.export(
         model,
         x,
@@ -150,7 +152,16 @@ if __name__ == "__main__":
     print("\nNew model Deliminator nodes:")
     for i, node in enumerate(new_model.graph.node):
         if 'Deliminator' in node.op_type:
-            print(f"  {i}: {node.op_type}")
+            # Extract attributes
+            attrs = {}
+            for attr in node.attribute:
+                if attr.name == 'is_begin':
+                    attrs['is_begin'] = attr.i
+                elif attr.name == 'partition_name':
+                    attrs['partition_name'] = attr.s.decode() if isinstance(attr.s, bytes) else attr.s
+                elif attr.name == 'scheduling_config':
+                    attrs['scheduling_config'] = attr.s.decode() if isinstance(attr.s, bytes) else attr.s
+            print(f"  {i}: {node.op_type} - {attrs}")
 
     # Show full structure comparison
     print("\n=== Original ONNX structure ===")
